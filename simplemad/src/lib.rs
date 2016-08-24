@@ -84,7 +84,6 @@ pub struct Frame {
     /// The position at the start of the frame
     pub position: Duration,
 }
-
 /// An interface for the decoding operation
 ///
 /// Create a decoder using `decode` or `decode_interval`. Fetch
@@ -189,7 +188,24 @@ impl<R> Decoder<R> where R: io::Read {
             Err(e) => Err(e),
         }
     }
-
+    /// Get the reader object this object encapsulates.
+    ///
+    /// Note that if you are attempting to seek it, you should also call `zero_buffer()`
+    /// so that the new data is decoded.
+    pub fn get_reader(&mut self) -> &mut R {
+        &mut self.reader
+    }
+    /// Zeroes the buffer of data and refills it with new data from `self.reader`.
+    ///
+    /// Returns the number of bytes read from the reader.
+    pub fn zero_buffer(&mut self) -> Result<usize, io::Error> {
+        self.buffer = Box::new([0u8; 32_768]);
+        self.refill_buffer_ubc(0)
+    }
+    /// Sets whether the decoder should decode headers only or not.
+    pub fn set_headers_only(&mut self, val: bool) {
+        self.headers_only = val;
+    }
     fn seek_to_start(&mut self) -> Result<Frame, SimplemadError> {
         if let Some(start_time) = self.start_time {
             while self.position < start_time {
@@ -269,7 +285,6 @@ impl<R> Decoder<R> where R: io::Read {
             samples: samples,
         })
     }
-
     fn refill_buffer(&mut self) -> Result<usize, io::Error> {
         let buffer_len = self.buffer.len();
         let next_frame_position = self.stream.next_frame as usize - self.stream.buffer as usize;
@@ -279,7 +294,10 @@ impl<R> Decoder<R> where R: io::Read {
         for idx in 0..unused_byte_count {
             self.buffer[idx] = self.buffer[idx + next_frame_position];
         }
-
+        self.refill_buffer_ubc(unused_byte_count)
+    }
+    fn refill_buffer_ubc(&mut self, unused_byte_count: usize) -> Result<usize, io::Error> {
+        let buffer_len = self.buffer.len();
         // Refill rest of buffer
         let mut free_region_start = unused_byte_count;
         while free_region_start != buffer_len {
@@ -299,7 +317,6 @@ impl<R> Decoder<R> where R: io::Read {
         let bytes_read = free_region_start - unused_byte_count;
         Ok(bytes_read)
     }
-
     fn check_error(&mut self) -> Option<MadError> {
         if self.stream.error != MadError::None {
             let error = self.stream.error;
@@ -310,7 +327,6 @@ impl<R> Decoder<R> where R: io::Read {
         }
     }
 }
-
 impl<R> Iterator for Decoder<R> where R: io::Read {
     type Item = Result<Frame, SimplemadError>;
     fn next(&mut self) -> Option<Result<Frame, SimplemadError>> {
